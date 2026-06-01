@@ -84,8 +84,8 @@ export default function DashboardView() {
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h2 className="text-xl font-bold text-[#052093]">Dashboard</h2>
-          <p className="text-[#656565] text-sm">Welcome back, {user?.name?.split(' ')[0]}</p>
+          <h2 className="text-xl font-bold text-[#052093]" style={{ fontFamily: 'var(--font-heading)' }}>Dashboard</h2>
+          <p className="text-[#6B7280] text-sm mt-0.5">Welcome back, {user?.name?.split(' ')[0]}</p>
         </div>
         <div className="flex items-center gap-3">
           {isAdmin && (

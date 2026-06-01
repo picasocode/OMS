@@ -65,8 +65,8 @@ export default function TopNav() {
             style={{ width: 'auto', height: 'auto' }}
           />
           <div className="hidden sm:flex items-center gap-2">
-            <span className="font-bold text-[#052093] text-lg leading-none">OMS</span>
-            <span className="text-[#656565] text-xs leading-none">Order Management</span>
+            <span className="font-bold text-[#052093] text-lg leading-none tracking-tight" style={{ fontFamily: 'var(--font-heading)' }}>OMS</span>
+            <span className="text-[#6B7280] text-xs leading-none font-medium">Order Management</span>
           </div>
         </div>
 

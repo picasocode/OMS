@@ -70,8 +70,8 @@ export default function LoginForm() {
               style={{ width: 'auto', height: 'auto' }}
             />
           </div>
-          <CardTitle className="text-xl font-bold text-[#052093]">Biomedic Consulting</CardTitle>
-          <CardDescription className="text-[#656565] text-sm">Order Management System</CardDescription>
+          <CardTitle className="text-xl font-bold text-[#052093]" style={{ fontFamily: 'var(--font-heading)' }}>Biomedic Consulting</CardTitle>
+          <CardDescription className="text-[#6B7280] text-sm font-medium">Order Management System</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={handleSubmit} className="space-y-4">

@@ -1,11 +1,19 @@
 import type { Metadata } from 'next';
-import { Raleway } from 'next/font/google';
+import { Plus_Jakarta_Sans, Syne } from 'next/font/google';
 import './globals.css';
 
-const raleway = Raleway({
+const plusJakarta = Plus_Jakarta_Sans({
   variable: '--font-sans',
   subsets: ['latin'],
   weight: ['300', '400', '500', '600', '700', '800'],
+  display: 'swap',
+});
+
+const syne = Syne({
+  variable: '--font-heading',
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700', '800'],
+  display: 'swap',
 });
 
 export const metadata: Metadata = {
@@ -19,7 +27,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${raleway.variable} h-full antialiased`}>
+    <html lang="en" className={`${plusJakarta.variable} ${syne.variable} h-full antialiased`}>
       <body className="min-h-full flex flex-col bg-[#F3F3F3]">{children}</body>
     </html>
   );
