@@ -1,0 +1,139 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model SalesRep {
+  id        String    @id @default(cuid())
+  name      String
+  email     String    @unique
+  password  String
+  phone     String?
+  territory String?
+  active    Boolean   @default(true)
+  createdAt DateTime  @default(now())
+  physicians Physician[]
+  orders     Order[]
+  auditLogs  AuditLog[]
+}
+
+model Physician {
+  id           String    @id @default(cuid())
+  name         String
+  practiceName String
+  email        String?
+  phone        String?
+  street       String?
+  city         String?
+  state        String?
+  zip          String?
+  active       Boolean   @default(true)
+  salesRepId   String
+  salesRep     SalesRep  @relation(fields: [salesRepId], references: [id])
+  orders       Order[]
+  createdAt    DateTime  @default(now())
+}
+
+model Product {
+  id          String      @id @default(cuid())
+  name        String
+  sku         String      @unique
+  productLine String
+  buyPrice    Float
+  sellPrice   Float
+  unit        String      @default("each")
+  active      Boolean     @default(true)
+  tiers       Tier[]
+  orderItems  OrderItem[]
+  createdAt   DateTime    @default(now())
+}
+
+model Tier {
+  id        String  @id @default(cuid())
+  productId String
+  product   Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  minQty    Int
+  maxQty    Int?
+  unitPrice Float
+  label     String
+}
+
+model DiscountCode {
+  id             String           @id @default(cuid())
+  code           String           @unique
+  description    String?
+  type           String
+  value          Float
+  productLine    String?
+  expiresAt      DateTime?
+  maxUses        Int?
+  currentUses    Int              @default(0)
+  stackable      Boolean          @default(false)
+  active         Boolean          @default(true)
+  isMarkup       Boolean          @default(false)
+  createdBy      String?
+  createdAt      DateTime         @default(now())
+  orderDiscounts OrderDiscount[]
+}
+
+model Order {
+  id            String         @id @default(cuid())
+  orderNumber   String         @unique
+  physicianId   String
+  physician     Physician      @relation(fields: [physicianId], references: [id])
+  salesRepId    String
+  salesRep      SalesRep       @relation(fields: [salesRepId], references: [id])
+  status        String         @default("order_placed")
+  subtotal      Float
+  discountTotal Float          @default(0)
+  shippingCost  Float          @default(0)
+  total         Float
+  buyTotal      Float
+  marginTotal   Float
+  deliveryDate  String?
+  notes         String?
+  items         OrderItem[]
+  discounts     OrderDiscount[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  approvedAt    DateTime?
+  paidAt        DateTime?
+  shippedAt     DateTime?
+}
+
+model OrderItem {
+  id        String  @id @default(cuid())
+  orderId   String
+  order     Order   @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  productId String
+  product   Product @relation(fields: [productId], references: [id])
+  quantity  Int
+  buyPrice  Float
+  sellPrice Float
+  margin    Float
+  tierLabel String?
+}
+
+model OrderDiscount {
+  id             String       @id @default(cuid())
+  orderId        String
+  order          Order        @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  discountCodeId String
+  discountCode   DiscountCode @relation(fields: [discountCodeId], references: [id])
+  appliedValue   Float
+}
+
+model AuditLog {
+  id         String    @id @default(cuid())
+  action     String
+  entity     String
+  entityId   String?
+  salesRepId String?
+  salesRep   SalesRep? @relation(fields: [salesRepId], references: [id])
+  details    String?
+  createdAt  DateTime  @default(now())
+}
