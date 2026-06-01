@@ -302,7 +302,13 @@ export default function NewOrderForm() {
               <CardContent>
                 <Label className="text-sm">Select Sales Rep</Label>
                 <Select value={salesRepId} onValueChange={(v) => handleRepChange(v ?? '')}>
-                  <SelectTrigger className="mt-1"><SelectValue placeholder="Choose a sales rep..." /></SelectTrigger>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue placeholder="Choose a sales rep...">
+                      {salesRepId
+                        ? (salesReps ?? []).find((r: { id: string }) => r.id === salesRepId)?.name ?? salesRepId
+                        : undefined}
+                    </SelectValue>
+                  </SelectTrigger>
                   <SelectContent>
                     {(salesReps ?? []).map((rep: { id: string; name: string; territory: string | null }) => (
                       <SelectItem key={rep.id} value={rep.id}>{rep.name} — {rep.territory ?? 'No territory'}</SelectItem>
@@ -320,9 +326,16 @@ export default function NewOrderForm() {
               <div>
                 <Label className="text-sm">Select Physician</Label>
                 <Select value={physicianId} onValueChange={(v) => setPhysicianId(v ?? '')}>
-                  <SelectTrigger className="mt-1"><SelectValue placeholder={
-                    isAdmin && !salesRepId ? 'Select a sales rep first...' : 'Choose a physician...'
-                  } /></SelectTrigger>
+                  <SelectTrigger className="mt-1">
+                    <SelectValue placeholder={isAdmin && !salesRepId ? 'Select a sales rep first...' : 'Choose a physician...'}>
+                      {physicianId
+                        ? (() => {
+                            const p = (physicians ?? []).find((x: { id: string }) => x.id === physicianId);
+                            return p ? `${p.name} — ${p.practiceName}` : undefined;
+                          })()
+                        : undefined}
+                    </SelectValue>
+                  </SelectTrigger>
                   <SelectContent>
                     {(physicians ?? []).map((p: { id: string; name: string; practiceName: string }) => (
                       <SelectItem key={p.id} value={p.id}>{p.name} — {p.practiceName}</SelectItem>

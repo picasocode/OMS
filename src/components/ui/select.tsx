@@ -41,23 +41,14 @@ function SelectTrigger({
       data-slot="select-trigger"
       data-size={size}
       className={cn(
-        // Base layout
         "flex w-full items-center justify-between gap-2 rounded-lg border border-input bg-white px-3 text-sm whitespace-nowrap transition-all outline-none select-none",
-        // Height by size
         "data-[size=default]:h-10 data-[size=sm]:h-8",
-        // Text & placeholder
         "text-foreground data-placeholder:text-muted-foreground",
-        // Hover
         "hover:border-ring/50 hover:bg-gray-50",
-        // Focus
         "focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/20",
-        // Disabled
         "disabled:cursor-not-allowed disabled:opacity-50",
-        // Invalid
         "aria-invalid:border-destructive aria-invalid:ring-2 aria-invalid:ring-destructive/20",
-        // Icon
         "[&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
-        // Value slot
         "*:data-[slot=select-value]:line-clamp-1 *:data-[slot=select-value]:flex *:data-[slot=select-value]:items-center *:data-[slot=select-value]:gap-1.5",
         className
       )}

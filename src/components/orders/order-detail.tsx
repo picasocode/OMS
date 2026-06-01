@@ -242,6 +242,118 @@ export default function OrderDetail() {
     doc.save(filename);
   };
 
+  const generateManufacturerPDF = () => {
+    if (!order) return;
+
+    const doc = new jsPDF();
+
+    // Header — manufacturer style (orange accent)
+    doc.setFontSize(20);
+    doc.setTextColor(5, 32, 147);
+    doc.text('Biomedic Consulting', 14, 20);
+    doc.setFontSize(10);
+    doc.setTextColor(101, 101, 101);
+    doc.text('Purchase Order / Manufacturer Copy', 14, 26);
+    doc.text('Phone: (480) 209-0307 | Email: trevor@biomedicconsulting.com', 14, 31);
+
+    // PO label
+    doc.setFontSize(14);
+    doc.setTextColor(255, 151, 0); // #FF9700
+    doc.text(`PO — ${order.orderNumber}`, 14, 42);
+
+    doc.setDrawColor(255, 151, 0);
+    doc.setLineWidth(0.8);
+    doc.line(14, 45, 196, 45);
+    doc.setLineWidth(0.2);
+
+    // Order info
+    doc.setFontSize(9);
+    doc.setTextColor(80, 80, 80);
+    const orderDate = new Date(order.createdAt).toLocaleDateString();
+    doc.text(`Order Date: ${orderDate}`, 14, 52);
+    doc.text(`Sales Rep: ${order.salesRep?.name || ''}`, 14, 57);
+    doc.text(`Status: ${STATUS_LABELS[order.status] ?? order.status}`, 14, 62);
+
+    // Ship To
+    doc.setFontSize(11);
+    doc.setTextColor(255, 151, 0);
+    doc.text('Ship To:', 120, 52);
+    doc.setFontSize(9);
+    doc.setTextColor(80, 80, 80);
+    doc.text(`${order.physician?.name}`, 120, 57);
+    doc.text(`${order.physician?.practiceName}`, 120, 62);
+    if (order.physician?.street) doc.text(`${order.physician.street}`, 120, 67);
+    if (order.physician?.city || order.physician?.state) {
+      doc.text(`${order.physician?.city || ''}, ${order.physician?.state || ''} ${order.physician?.zip || ''}`, 120, 72);
+    }
+
+    // CONFIDENTIAL watermark
+    doc.setFontSize(48);
+    doc.setTextColor(255, 151, 0);
+    doc.setFont('helvetica', 'bold');
+    const pageWidth = doc.internal.pageSize.getWidth();
+    doc.text('MANUFACTURER', pageWidth / 2, 150, { align: 'center', angle: 45 });
+    doc.setFont('helvetica', 'normal');
+
+    // Product table — buy prices only
+    autoTable(doc, {
+      columns: [
+        { header: 'Product', dataKey: 'product' },
+        { header: 'SKU', dataKey: 'sku' },
+        { header: 'Qty', dataKey: 'qty' },
+        { header: 'Buy Price (Unit)', dataKey: 'buyPrice' },
+        { header: 'Line Total', dataKey: 'lineTotal' },
+      ],
+      body: (order.items ?? []).map((item: {
+        product: { name: string; sku?: string }; quantity: number; buyPrice: number; tierLabel: string | null;
+      }) => ({
+        product: item.product?.name + (item.tierLabel ? ` (${item.tierLabel})` : ''),
+        sku: item.product?.sku ?? '—',
+        qty: String(item.quantity),
+        buyPrice: formatCurrency(item.buyPrice),
+        lineTotal: formatCurrency(item.buyPrice * item.quantity),
+      })),
+      startY: 82,
+      styles: { fontSize: 8, cellPadding: 3 },
+      headStyles: { fillColor: [255, 151, 0], textColor: 255, fontStyle: 'bold' },
+      alternateRowStyles: { fillColor: [255, 250, 240] },
+    });
+
+    // Buy totals
+    const finalY = (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable?.finalY ?? 120;
+    let yPos = finalY + 10;
+
+    doc.setDrawColor(255, 151, 0);
+    doc.setLineWidth(0.5);
+    doc.line(120, yPos, 196, yPos);
+    yPos += 7;
+
+    doc.setFontSize(12);
+    doc.setTextColor(255, 151, 0);
+    doc.setFont('helvetica', 'bold');
+    doc.text('Total Buy Cost:', 120, yPos);
+    doc.text(formatCurrency(order.buyTotal), 170, yPos, { align: 'right' });
+    doc.setFont('helvetica', 'normal');
+
+    // Notes
+    if (order.notes) {
+      yPos += 14;
+      doc.setFontSize(9);
+      doc.setTextColor(80, 80, 80);
+      doc.text('Notes:', 14, yPos);
+      doc.text(order.notes, 14, yPos + 5);
+    }
+
+    // Footer
+    const pageHeight = doc.internal.pageSize.getHeight();
+    doc.setFontSize(7);
+    doc.setTextColor(160, 160, 160);
+    doc.text('Biomedic Consulting — MANUFACTURER COPY — CONFIDENTIAL', 14, pageHeight - 10);
+    doc.text(`Generated: ${new Date().toLocaleString()}`, 14, pageHeight - 6);
+
+    doc.save(`${order.orderNumber}_manufacturer.pdf`);
+  };
+
   if (isLoading || !order) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -277,6 +389,9 @@ export default function OrderDetail() {
             <>
               <Button variant="outline" size="sm" onClick={() => generatePDF(false)}>
                 <Download className="h-4 w-4 mr-1" /> Physician Copy
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => generateManufacturerPDF()} className="border-[#FF9700] text-[#FF9700] hover:bg-orange-50">
+                <FileText className="h-4 w-4 mr-1" /> Manufacturer Copy
               </Button>
               <Button variant="outline" size="sm" onClick={() => generatePDF(true)} className="border-emerald-300 text-emerald-700 hover:bg-emerald-50">
                 <FileText className="h-4 w-4 mr-1" /> Internal Copy
