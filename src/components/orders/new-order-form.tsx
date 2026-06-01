@@ -55,24 +55,37 @@ export default function NewOrderForm() {
 
   const { data: salesReps } = useQuery({
     queryKey: ['sales-reps'],
-    queryFn: () => fetch('/api/sales-reps').then((r) => r.json()),
+    queryFn: async () => {
+      const res = await fetch('/api/sales-reps');
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    },
     enabled: isAdmin,
   });
 
   const effectiveRepId = user?.role === 'sales_rep' ? user.id : salesRepId;
   const { data: physicians } = useQuery({
     queryKey: ['physicians', effectiveRepId],
-    queryFn: () => {
+    queryFn: async () => {
       const params = new URLSearchParams();
       if (effectiveRepId) params.set('salesRepId', effectiveRepId);
-      return fetch(`/api/physicians?${params}`).then((r) => r.json());
+      const res = await fetch(`/api/physicians?${params}`);
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
     },
     enabled: !!effectiveRepId || isAdmin,
   });
 
-  const { data: products } = useQuery({
+  const { data: products } = useQuery<ProductItem[]>({
     queryKey: ['products'],
-    queryFn: () => fetch('/api/products').then((r) => r.json()) as Promise<ProductItem[]>,
+    queryFn: async () => {
+      const res = await fetch('/api/products');
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    },
   });
 
   const selectedPhysician = physicians?.find((p: { id: string }) => p.id === physicianId);

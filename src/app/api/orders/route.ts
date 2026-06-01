@@ -17,9 +17,9 @@ export const GET = requireAuth(async (request: NextRequest, user) => {
     if (status) where.status = status;
     if (search) {
       where.OR = [
-        { orderNumber: { contains: search } },
-        { physician: { name: { contains: search } } },
-        { physician: { practiceName: { contains: search } } },
+        { orderNumber: { contains: search, mode: 'insensitive' } },
+        { physician: { name: { contains: search, mode: 'insensitive' } } },
+        { physician: { practiceName: { contains: search, mode: 'insensitive' } } },
       ];
     }
 
@@ -151,8 +151,10 @@ export const POST = requireAuth(async (request: NextRequest, user) => {
     const total = subtotal - discountTotal + shippingCost;
     const marginTotal = total - buyTotal;
 
-    // Generate order number
-    const lastOrder = await db.order.findFirst({ orderBy: { orderNumber: 'desc' } });
+    // Generate order number — sort numerically by extracting the integer part
+    const lastOrder = await db.order.findFirst({
+      orderBy: { createdAt: 'desc' },
+    });
     const nextNum = lastOrder ? parseInt(lastOrder.orderNumber.replace('BIO-', '')) + 1 : 1001;
     const orderNumber = `BIO-${nextNum}`;
 

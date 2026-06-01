@@ -55,7 +55,12 @@ export default function DashboardView() {
 
   const { data: reps } = useQuery({
     queryKey: ['sales-reps'],
-    queryFn: () => fetch('/api/sales-reps').then((r) => r.json()),
+    queryFn: async () => {
+      const res = await fetch('/api/sales-reps');
+      if (!res.ok) return [];
+      const data = await res.json();
+      return Array.isArray(data) ? data : [];
+    },
     enabled: isAdmin,
   });
 
