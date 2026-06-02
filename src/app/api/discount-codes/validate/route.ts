@@ -1,55 +1,45 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
 import { requireAuth } from '@/lib/auth';
+import { getDiscountCodeByCode } from '@/lib/jotform';
 
-// POST validate discount code - Any authenticated user (used during order creation)
-export const POST = requireAuth(async (request: NextRequest, _user) => {
+export const POST = requireAuth(async (request: NextRequest) => {
   try {
-    const body = await request.json();
-    const { code, subtotal, productLines } = body;
+    const { code, subtotal, productLines } = await request.json();
 
-    const discountCode = await db.discountCode.findFirst({
-      where: { code, active: true },
-    });
+    const dc = await getDiscountCodeByCode(code);
 
-    if (!discountCode) {
-      return NextResponse.json({ valid: false, error: 'Invalid or inactive discount code' });
+    if (!dc) {
+      return NextResponse.json({ valid: false, error: 'Invalid discount code' });
     }
-
-    // Check expiry
-    if (discountCode.expiresAt && new Date(discountCode.expiresAt) < new Date()) {
+    if (!dc.active) {
+      return NextResponse.json({ valid: false, error: 'Discount code is inactive' });
+    }
+    if (dc.expiresAt && new Date(dc.expiresAt) < new Date()) {
       return NextResponse.json({ valid: false, error: 'Discount code has expired' });
     }
-
-    // Check max uses
-    if (discountCode.maxUses !== null && discountCode.currentUses >= discountCode.maxUses) {
-      return NextResponse.json({ valid: false, error: 'Discount code has reached maximum uses' });
+    if (dc.maxUses && dc.currentUses >= dc.maxUses) {
+      return NextResponse.json({ valid: false, error: 'Discount code has reached its usage limit' });
+    }
+    if (dc.productLine && productLines && !productLines.includes(dc.productLine)) {
+      return NextResponse.json({
+        valid: false,
+        error: `Code only applies to ${dc.productLine} products`,
+      });
     }
 
-    // Check product line restriction
-    if (discountCode.productLine && productLines && !productLines.includes(discountCode.productLine)) {
-      return NextResponse.json({ valid: false, error: `Code only applies to ${discountCode.productLine} products` });
-    }
-
+    const applicableSubtotal = subtotal;
     let discountAmount = 0;
-    if (discountCode.type === 'percentage') {
-      discountAmount = subtotal * (discountCode.value / 100);
-    } else if (discountCode.type === 'fixed') {
-      discountAmount = discountCode.value;
+    if (dc.type === 'percentage') {
+      discountAmount = dc.isMarkup
+        ? -(applicableSubtotal * (dc.value / 100))
+        : applicableSubtotal * (dc.value / 100);
+    } else if (dc.type === 'fixed') {
+      discountAmount = dc.value;
     }
 
-    if (discountCode.isMarkup) {
-      discountAmount = -discountAmount;
-    }
-
-    return NextResponse.json({
-      valid: true,
-      discountCode,
-      discountAmount,
-      isMarkup: discountCode.isMarkup,
-    });
+    return NextResponse.json({ valid: true, discountAmount, isMarkup: dc.isMarkup, discountCode: dc });
   } catch (error) {
     console.error('Error validating discount code:', error);
-    return NextResponse.json({ error: 'Failed to validate discount code' }, { status: 500 });
+    return NextResponse.json({ valid: false, error: 'Failed to validate code' }, { status: 500 });
   }
 });

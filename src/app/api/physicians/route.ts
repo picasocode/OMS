@@ -1,28 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
-import { requireAuth, enforceRepOwnership, requireOwnershipOrAdmin } from '@/lib/auth';
+import { requireAuth, enforceRepOwnership } from '@/lib/auth';
+import {
+  getPhysicians, createPhysician, getSalesRepById, getOrders,
+} from '@/lib/jotform';
 
 export const GET = requireAuth(async (request: NextRequest, user) => {
   try {
     const { searchParams } = new URL(request.url);
     const salesRepId = searchParams.get('salesRepId');
+    const effectiveRepId = user.role === 'sales_rep' ? user.id : salesRepId ?? undefined;
 
-    // Sales reps can only see their own physicians
-    const effectiveRepId = user.role === 'sales_rep' ? user.id : salesRepId;
+    const physicians = await getPhysicians(effectiveRepId);
+    const allOrders = await getOrders();
 
-    const where: Record<string, unknown> = {};
-    if (effectiveRepId) where.salesRepId = effectiveRepId;
+    const enriched = await Promise.all(
+      physicians.map(async (p) => {
+        const rep = await getSalesRepById(p.salesRepId);
+        const orderCount = allOrders.filter((o) => o.physicianId === p.id).length;
+        return {
+          ...p,
+          salesRep: rep ? { id: rep.id, name: rep.name, email: rep.email } : null,
+          _count: { orders: orderCount },
+        };
+      })
+    );
 
-    const physicians = await db.physician.findMany({
-      where,
-      include: {
-        salesRep: true,
-        _count: { select: { orders: true } },
-      },
-      orderBy: { name: 'asc' },
-    });
-
-    return NextResponse.json(physicians);
+    return NextResponse.json(enriched);
   } catch (error) {
     console.error('Error fetching physicians:', error);
     return NextResponse.json({ error: 'Failed to fetch physicians' }, { status: 500 });
@@ -32,32 +35,19 @@ export const GET = requireAuth(async (request: NextRequest, user) => {
 export const POST = requireAuth(async (request: NextRequest, user) => {
   try {
     const rawBody = await request.json();
-    // Sales reps can only create physicians assigned to themselves
     const body = enforceRepOwnership(user, rawBody);
-    const name = body.name as string;
-    const practiceName = body.practiceName as string;
-    const email = body.email as string | undefined;
-    const phone = body.phone as string | undefined;
-    const street = body.street as string | undefined;
-    const city = body.city as string | undefined;
-    const state = body.state as string | undefined;
-    const zip = body.zip as string | undefined;
-    const salesRepId = body.salesRepId as string;
 
-    const physician = await db.physician.create({
-      data: { name, practiceName, email, phone, street, city, state, zip, salesRepId },
-      include: { salesRep: true },
-    });
-
-    // Audit log
-    await db.auditLog.create({
-      data: {
-        action: 'physician_created',
-        entity: 'physician',
-        entityId: physician.id,
-        salesRepId: user.id === 'admin' ? null : user.id,
-        details: JSON.stringify({ name, createdBy: user.email }),
-      },
+    const physician = await createPhysician({
+      name: body.name as string,
+      practiceName: body.practiceName as string,
+      email: (body.email as string) || null,
+      phone: (body.phone as string) || null,
+      street: (body.street as string) || null,
+      city: (body.city as string) || null,
+      state: (body.state as string) || null,
+      zip: (body.zip as string) || null,
+      salesRepId: body.salesRepId as string,
+      active: true,
     });
 
     return NextResponse.json(physician, { status: 201 });

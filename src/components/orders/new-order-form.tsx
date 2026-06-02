@@ -65,17 +65,19 @@ export default function NewOrderForm() {
   });
 
   const effectiveRepId = user?.role === 'sales_rep' ? user.id : salesRepId;
+  // For admin: fetch ALL physicians so they can pick a physician first and have the rep auto-populate
   const { data: physicians } = useQuery({
-    queryKey: ['physicians', effectiveRepId],
+    queryKey: ['physicians', isAdmin ? 'all' : effectiveRepId],
     queryFn: async () => {
       const params = new URLSearchParams();
-      if (effectiveRepId) params.set('salesRepId', effectiveRepId);
+      // Sales reps only see their own physicians; admin sees all (no filter)
+      if (!isAdmin && effectiveRepId) params.set('salesRepId', effectiveRepId);
       const res = await fetch(`/api/physicians?${params}`);
       if (!res.ok) return [];
       const data = await res.json();
       return Array.isArray(data) ? data : [];
     },
-    enabled: !!effectiveRepId || isAdmin,
+    enabled: true,
   });
 
   const { data: products } = useQuery<ProductItem[]>({
@@ -93,6 +95,17 @@ export default function NewOrderForm() {
   const handleRepChange = (repId: string) => {
     setSalesRepId(repId);
     setPhysicianId('');
+  };
+
+  // When admin picks a physician, auto-populate the sales rep
+  const handlePhysicianChange = (physId: string) => {
+    setPhysicianId(physId);
+    if (isAdmin && physId) {
+      const physician = (physicians ?? []).find((p: { id: string; salesRepId: string }) => p.id === physId);
+      if (physician?.salesRepId) {
+        setSalesRepId(physician.salesRepId);
+      }
+    }
   };
 
   const addProductToOrder = (productId: string) => {
@@ -303,18 +316,25 @@ export default function NewOrderForm() {
                 <Label className="text-sm">Select Sales Rep</Label>
                 <Select value={salesRepId} onValueChange={(v) => handleRepChange(v ?? '')}>
                   <SelectTrigger className="mt-1">
-                    <SelectValue placeholder="Choose a sales rep...">
-                      {salesRepId
-                        ? (salesReps ?? []).find((r: { id: string }) => r.id === salesRepId)?.name ?? salesRepId
-                        : undefined}
+                    <SelectValue placeholder="Choose a sales rep or select physician first...">
+                      {(value: string) => {
+                        if (!value) return null;
+                        const rep = (salesReps ?? []).find((r: { id: string; name: string }) => r.id === value);
+                        return rep ? rep.name : value;
+                      }}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
                     {(salesReps ?? []).map((rep: { id: string; name: string; territory: string | null }) => (
-                      <SelectItem key={rep.id} value={rep.id}>{rep.name} — {rep.territory ?? 'No territory'}</SelectItem>
+                      <SelectItem key={rep.id} value={rep.id}>{rep.name}{rep.territory ? ` — ${rep.territory}` : ''}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                {salesRepId && (
+                  <p className="text-xs text-[#656565] mt-1">
+                    Auto-filled from physician selection. You can change it above if needed.
+                  </p>
+                )}
               </CardContent>
             </Card>
           )}
@@ -325,20 +345,22 @@ export default function NewOrderForm() {
             <CardContent className="space-y-3">
               <div>
                 <Label className="text-sm">Select Physician</Label>
-                <Select value={physicianId} onValueChange={(v) => setPhysicianId(v ?? '')}>
+                <Select value={physicianId} onValueChange={(v) => handlePhysicianChange(v ?? '')}>
                   <SelectTrigger className="mt-1">
-                    <SelectValue placeholder={isAdmin && !salesRepId ? 'Select a sales rep first...' : 'Choose a physician...'}>
-                      {physicianId
-                        ? (() => {
-                            const p = (physicians ?? []).find((x: { id: string }) => x.id === physicianId);
-                            return p ? `${p.name} — ${p.practiceName}` : undefined;
-                          })()
-                        : undefined}
+                    <SelectValue placeholder="Choose a physician...">
+                      {(value: string) => {
+                        if (!value) return null;
+                        const p = (physicians ?? []).find((x: { id: string; name: string; practiceName: string }) => x.id === value);
+                        return p ? `${p.name} — ${p.practiceName}` : value;
+                      }}
                     </SelectValue>
                   </SelectTrigger>
                   <SelectContent>
-                    {(physicians ?? []).map((p: { id: string; name: string; practiceName: string }) => (
-                      <SelectItem key={p.id} value={p.id}>{p.name} — {p.practiceName}</SelectItem>
+                    {(physicians ?? []).map((p: { id: string; name: string; practiceName: string; salesRep?: { name: string } }) => (
+                      <SelectItem key={p.id} value={p.id}>
+                        {p.name} — {p.practiceName}
+                        {isAdmin && p.salesRep?.name ? ` (${p.salesRep.name})` : ''}
+                      </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>

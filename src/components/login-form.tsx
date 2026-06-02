@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useAuthStore } from '@/store/auth-store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -12,9 +12,20 @@ import { LogIn } from 'lucide-react';
 export default function LoginForm() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [error, setError] = useState('');
+  const [error, setError] = useState(() => {
+    if (typeof window === 'undefined') return '';
+    return new URLSearchParams(window.location.search).get('authError') || '';
+  });
   const [loading, setLoading] = useState(false);
+  const [googleLoading, setGoogleLoading] = useState(false);
   const login = useAuthStore((s) => s.login);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.has('authError')) {
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,6 +65,12 @@ export default function LoginForm() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleGoogleLogin = () => {
+    setError('');
+    setGoogleLoading(true);
+    window.location.href = '/api/auth/google';
   };
 
   return (
@@ -101,6 +118,24 @@ export default function LoginForm() {
             <Button type="submit" disabled={loading} className="w-full bg-[#FF9700] hover:bg-[#e88800] text-white font-semibold">
               <LogIn className="h-4 w-4 mr-2" />
               {loading ? 'Signing in...' : 'Sign In'}
+            </Button>
+            <div className="relative py-1">
+              <div className="absolute inset-0 flex items-center">
+                <span className="w-full border-t border-gray-200" />
+              </div>
+              <div className="relative flex justify-center text-xs uppercase">
+                <span className="bg-white px-2 text-[#6B7280]">or</span>
+              </div>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={googleLoading}
+              onClick={handleGoogleLogin}
+              className="w-full border-gray-300 font-semibold text-[#111827] hover:bg-gray-50"
+            >
+              <span aria-hidden="true" className="mr-2 text-base font-bold text-[#4285F4]">G</span>
+              {googleLoading ? 'Opening Google...' : 'Continue with Google'}
             </Button>
           </form>
         </CardContent>

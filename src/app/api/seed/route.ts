@@ -1,127 +1,209 @@
 import { NextResponse } from 'next/server';
-import { db } from '@/lib/db';
 import { requireAuth } from '@/lib/auth';
+import {
+  createSalesRep,
+  createPhysician,
+  getProducts, createProduct,
+  createDiscountCode,
+  createOrder,
+  jfDelete, FORM_IDS,
+} from '@/lib/jotform';
 
-// GET - Auto-seed if empty - Admin only (or just check, no wipe)
+// Helper: wipe all submissions in a form
+async function wipeForm(formId: string) {
+  const API_KEY = process.env.JOTFORM_API_KEY!;
+  const BASE_URL = 'https://api.jotform.com';
+  const res = await fetch(`${BASE_URL}/form/${formId}/submissions?apiKey=${API_KEY}&limit=1000`, {
+    next: { revalidate: 0 },
+  });
+  const json = await res.json();
+  if (json.responseCode !== 200) return;
+  const subs: { id: string; status: string }[] = json.content ?? [];
+  await Promise.all(
+    subs
+      .filter((s) => s.status === 'ACTIVE')
+      .map((s) => jfDelete(s.id))
+  );
+}
+
+// GET — check if JotForm has data
 export const GET = requireAuth(async () => {
   try {
-    const productCount = await db.product.count();
+    const products = await getProducts();
     return NextResponse.json({
-      seeded: productCount > 0,
-      message: productCount > 0 ? 'Database already has data' : 'Database is empty, use POST to seed',
+      seeded: products.length > 0,
+      message: products.length > 0
+        ? `JotForm has data: ${products.length} products`
+        : 'JotForm is empty — use POST to seed',
     });
-  } catch (error: unknown) {
-    console.error('Error in seed check:', error);
+  } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json({ seeded: false, error: 'Seed check failed', details: message }, { status: 500 });
   }
-}, ['admin']); // Admin only
+}, ['admin']);
 
-// POST - Manual re-seed (wipes and re-creates) - Admin only
+// POST — wipe all JotForm data and seed fresh
 export const POST = requireAuth(async () => {
   try {
-    // Clean existing data
-    await db.auditLog.deleteMany();
-    await db.orderDiscount.deleteMany();
-    await db.orderItem.deleteMany();
-    await db.order.deleteMany();
-    await db.tier.deleteMany();
-    await db.discountCode.deleteMany();
-    await db.product.deleteMany();
-    await db.physician.deleteMany();
-    await db.salesRep.deleteMany();
-
-    // Sales Reps
-    const reps = await Promise.all([
-      db.salesRep.create({ data: { name: "Sarah Johnson", email: "sarah@biomedic.com", password: "rep1234", phone: "(602) 555-0101", territory: "Southwest" } }),
-      db.salesRep.create({ data: { name: "Mike Chen", email: "mike@biomedic.com", password: "rep1234", phone: "(212) 555-0102", territory: "Northeast" } }),
-      db.salesRep.create({ data: { name: "Emily Rodriguez", email: "emily@biomedic.com", password: "rep1234", phone: "(305) 555-0103", territory: "Southeast" } }),
-    ]);
-
-    // Admin sales rep
-    await db.salesRep.create({ data: { name: "Admin", email: "admin@biomedic.com", password: "BioMedic2024!", phone: "(480) 209-0307", territory: "All" } });
-
-    // Physicians
-    const physicians = await Promise.all([
-      db.physician.create({ data: { name: "Dr. James Wilson", practiceName: "Pacific Spine Center", email: "wilson@pacificspine.com", phone: "(602) 555-1001", street: "1234 Desert Ridge Dr", city: "Phoenix", state: "AZ", zip: "85054", salesRepId: reps[0].id } }),
-      db.physician.create({ data: { name: "Dr. Maria Santos", practiceName: "City Medical Group", email: "santos@citymed.com", phone: "(602) 555-1002", street: "5678 Central Ave", city: "Tucson", state: "AZ", zip: "85701", salesRepId: reps[0].id } }),
-      db.physician.create({ data: { name: "Dr. Robert Chang", practiceName: "Northeast Pain Clinic", email: "chang@nepain.com", phone: "(212) 555-2001", street: "345 Park Avenue", city: "New York", state: "NY", zip: "10154", salesRepId: reps[1].id } }),
-      db.physician.create({ data: { name: "Dr. Carlos Rivera", practiceName: "Miami Orthopedic Center", email: "rivera@miamiortho.com", phone: "(305) 555-3001", street: "1295 Brickell Ave", city: "Miami", state: "FL", zip: "33131", salesRepId: reps[2].id } }),
-    ]);
-
-    // Products
-    const pns7 = await db.product.create({ data: { name: "pIPG Single System Kit (7cm)", sku: "NRO4-STM-07", productLine: "MiniStim PNS", buyPrice: 5500, sellPrice: 7500, unit: "kit" } });
-    const pns12 = await db.product.create({ data: { name: "pIPG Single System Kit (12cm)", sku: "NRO4-STM-12", productLine: "MiniStim PNS", buyPrice: 5500, sellPrice: 7500, unit: "kit" } });
-    const pns20 = await db.product.create({ data: { name: "pIPG Single System Kit (20cm)", sku: "NRO4-STM-20", productLine: "MiniStim PNS", buyPrice: 5500, sellPrice: 7500, unit: "kit" } });
-    const etx = await db.product.create({ data: { name: "ETx Transmitter Kit", sku: "MNRO-915-1k", productLine: "MiniStim PNS", buyPrice: 2800, sellPrice: 4000, unit: "kit" } });
-    const nerveStim = await db.product.create({ data: { name: "Nerve Stimulator", sku: "B170450+NMS450X", productLine: "StimuCath", buyPrice: 1400, sellPrice: 2050, unit: "each" } });
-    const cable = await db.product.create({ data: { name: "Stimpod Nerve Mapping/Locating Cable", sku: "B170461", productLine: "StimuCath", buyPrice: 170, sellPrice: 250, unit: "each" } });
-    const cathSet = await db.product.create({ data: { name: "Teleflex Stimulating Catheter Set", sku: "AB-05060-PK", productLine: "StimuCath", buyPrice: 650, sellPrice: 970, unit: "box of 5" } });
-
-    // Tier pricing
-    for (const pnsKit of [pns7, pns12, pns20]) {
-      await Promise.all([
-        db.tier.create({ data: { productId: pnsKit.id, minQty: 1, maxQty: 12, unitPrice: 7500, label: "1-12 units" } }),
-        db.tier.create({ data: { productId: pnsKit.id, minQty: 13, maxQty: 29, unitPrice: 7000, label: "13-29 units" } }),
-        db.tier.create({ data: { productId: pnsKit.id, minQty: 30, maxQty: null, unitPrice: 6500, label: "30+ units" } }),
-      ]);
-    }
-
-    // Discount Codes
+    // 1. Wipe all forms
     await Promise.all([
-      db.discountCode.create({ data: { code: "WELCOME10", description: "10% off for new customers", type: "percentage", value: 10, productLine: null, expiresAt: new Date("2026-12-31"), maxUses: 50, currentUses: 0, stackable: false, isMarkup: false } }),
-      db.discountCode.create({ data: { code: "MINISTIM5", description: "5% off MiniStim products", type: "percentage", value: 5, productLine: "MiniStim PNS", expiresAt: new Date("2026-09-30"), maxUses: 100, currentUses: 0, stackable: false, isMarkup: false } }),
-      db.discountCode.create({ data: { code: "BULK300", description: "$300 off bulk orders", type: "fixed", value: 300, productLine: null, expiresAt: null, maxUses: 200, currentUses: 0, stackable: true, isMarkup: false } }),
+      wipeForm(FORM_IDS.salesReps),
+      wipeForm(FORM_IDS.physicians),
+      wipeForm(FORM_IDS.products),
+      wipeForm(FORM_IDS.discounts),
+      wipeForm(FORM_IDS.orders),
     ]);
 
-    // Sample Orders
-    const orderData = [
-      { physicianId: physicians[0].id, salesRepId: reps[0].id, status: "shipped", items: [{ productId: pns7.id, qty: 2, sell: 7500, buy: 5500, tier: "1-12 units" }], discountCode: "WELCOME10", discountVal: 1500, daysAgo: 45 },
-      { physicianId: physicians[2].id, salesRepId: reps[1].id, status: "paid", items: [{ productId: etx.id, qty: 1, sell: 4000, buy: 2800, tier: null }, { productId: nerveStim.id, qty: 5, sell: 2050, buy: 1400, tier: null }], discountCode: null, discountVal: 0, daysAgo: 12 },
-      { physicianId: physicians[3].id, salesRepId: reps[2].id, status: "order_approved", items: [{ productId: pns12.id, qty: 15, sell: 7000, buy: 5500, tier: "13-29 units" }], discountCode: null, discountVal: 0, daysAgo: 3 },
-      { physicianId: physicians[1].id, salesRepId: reps[0].id, status: "order_placed", items: [{ productId: cathSet.id, qty: 3, sell: 970, buy: 650, tier: null }, { productId: cable.id, qty: 2, sell: 250, buy: 170, tier: null }], discountCode: null, discountVal: 0, daysAgo: 1 },
+    // 2. Sales Reps
+    const [sarah, mike, emily] = await Promise.all([
+      createSalesRep({ name: 'Sarah Johnson', email: 'sarah@biomedic.com', password: 'rep1234', phone: '(602) 555-0101', territory: 'Southwest', active: true }),
+      createSalesRep({ name: 'Mike Chen',     email: 'mike@biomedic.com',  password: 'rep1234', phone: '(212) 555-0102', territory: 'Northeast', active: true }),
+      createSalesRep({ name: 'Emily Rodriguez', email: 'emily@biomedic.com', password: 'rep1234', phone: '(305) 555-0103', territory: 'Southeast', active: true }),
+    ]);
+
+    // 3. Physicians
+    const [wilson, santos, chang, rivera] = await Promise.all([
+      createPhysician({ name: 'Dr. James Wilson',  practiceName: 'Pacific Spine Center',     email: 'wilson@pacificspine.com', phone: '(602) 555-1001', street: '1234 Desert Ridge Dr', city: 'Phoenix',  state: 'AZ', zip: '85054', salesRepId: sarah.id, active: true }),
+      createPhysician({ name: 'Dr. Maria Santos',  practiceName: 'City Medical Group',        email: 'santos@citymed.com',       phone: '(602) 555-1002', street: '5678 Central Ave',    city: 'Tucson',   state: 'AZ', zip: '85701', salesRepId: sarah.id, active: true }),
+      createPhysician({ name: 'Dr. Robert Chang',  practiceName: 'Northeast Pain Clinic',     email: 'chang@nepain.com',         phone: '(212) 555-2001', street: '345 Park Avenue',     city: 'New York', state: 'NY', zip: '10154', salesRepId: mike.id,  active: true }),
+      createPhysician({ name: 'Dr. Carlos Rivera', practiceName: 'Miami Orthopedic Center',   email: 'rivera@miamiortho.com',    phone: '(305) 555-3001', street: '1295 Brickell Ave',   city: 'Miami',    state: 'FL', zip: '33131', salesRepId: emily.id, active: true }),
+    ]);
+
+    // 4. Products (MiniStim PNS — with tier pricing)
+    const tiersPNS = [
+      { id: 't1', minQty: 1,  maxQty: 12,  unitPrice: 7500, label: '1-12 units'  },
+      { id: 't2', minQty: 13, maxQty: 29,  unitPrice: 7000, label: '13-29 units' },
+      { id: 't3', minQty: 30, maxQty: null, unitPrice: 6500, label: '30+ units'  },
     ];
 
-    let orderCounter = 1001;
-    for (const od of orderData) {
-      const items = od.items.map(i => ({ subtotal: i.sell * i.qty, buyTotal: i.buy * i.qty, margin: (i.sell - i.buy) * i.qty }));
-      const subtotal = items.reduce((s, i) => s + i.subtotal, 0);
-      const buyTotal = items.reduce((s, i) => s + i.buyTotal, 0);
-      const marginTotal = items.reduce((s, i) => s + i.margin, 0);
-      const total = subtotal - od.discountVal;
-      const createdAt = new Date();
-      createdAt.setDate(createdAt.getDate() - od.daysAgo);
+    const [pns7, pns12, , etx, nerveStim, cable, cathSet] = await Promise.all([
+      createProduct({ name: 'pIPG Single System Kit (7cm)',            sku: 'NRO4-STM-07',      productLine: 'MiniStim PNS', buyPrice: 5500, sellPrice: 7500, unit: 'kit',      active: true, tiers: tiersPNS }),
+      createProduct({ name: 'pIPG Single System Kit (12cm)',           sku: 'NRO4-STM-12',      productLine: 'MiniStim PNS', buyPrice: 5500, sellPrice: 7500, unit: 'kit',      active: true, tiers: tiersPNS }),
+      createProduct({ name: 'pIPG Single System Kit (20cm)',           sku: 'NRO4-STM-20',      productLine: 'MiniStim PNS', buyPrice: 5500, sellPrice: 7500, unit: 'kit',      active: true, tiers: tiersPNS }),
+      createProduct({ name: 'ETx Transmitter Kit',                     sku: 'MNRO-915-1k',      productLine: 'MiniStim PNS', buyPrice: 2800, sellPrice: 4000, unit: 'kit',      active: true, tiers: [] }),
+      createProduct({ name: 'Nerve Stimulator',                        sku: 'B170450+NMS450X',  productLine: 'StimuCath',    buyPrice: 1400, sellPrice: 2050, unit: 'each',     active: true, tiers: [] }),
+      createProduct({ name: 'Stimpod Nerve Mapping/Locating Cable',    sku: 'B170461',           productLine: 'StimuCath',    buyPrice:  170, sellPrice:  250, unit: 'each',     active: true, tiers: [] }),
+      createProduct({ name: 'Teleflex Stimulating Catheter Set',       sku: 'AB-05060-PK',       productLine: 'StimuCath',    buyPrice:  650, sellPrice:  970, unit: 'box of 5', active: true, tiers: [] }),
+    ]);
 
-      const order = await db.order.create({
-        data: {
-          orderNumber: `BIO-${orderCounter}`,
-          physicianId: od.physicianId,
-          salesRepId: od.salesRepId,
-          status: od.status,
-          subtotal, discountTotal: od.discountVal, shippingCost: 0, total, buyTotal,
-          marginTotal: marginTotal - od.discountVal,
-          createdAt,
-          approvedAt: ["order_approved", "paid", "shipped"].includes(od.status) ? new Date(createdAt.getTime() + 86400000) : null,
-          paidAt: ["paid", "shipped"].includes(od.status) ? new Date(createdAt.getTime() + 86400000 * 3) : null,
-          shippedAt: od.status === "shipped" ? new Date(createdAt.getTime() + 86400000 * 5) : null,
-          items: { create: od.items.map(i => ({ productId: i.productId, quantity: i.qty, buyPrice: i.buy, sellPrice: i.sell, margin: i.sell - i.buy, tierLabel: i.tier })) },
-        },
-      });
+    // 5. Discount Codes
+    const [welcome] = await Promise.all([
+      createDiscountCode({ code: 'WELCOME10', description: '10% off for new customers',    type: 'percentage', value: 10, productLine: null,          expiresAt: '2026-12-31T00:00:00.000Z', maxUses: 50,  currentUses: 0, stackable: false, active: true, isMarkup: false, createdBy: 'admin' }),
+      createDiscountCode({ code: 'MINISTIM5', description: '5% off MiniStim products',     type: 'percentage', value:  5, productLine: 'MiniStim PNS', expiresAt: '2026-09-30T00:00:00.000Z', maxUses: 100, currentUses: 0, stackable: false, active: true, isMarkup: false, createdBy: 'admin' }),
+      createDiscountCode({ code: 'BULK300',   description: '$300 off bulk orders',          type: 'fixed',      value: 300, productLine: null,         expiresAt: null,                        maxUses: 200, currentUses: 0, stackable: true,  active: true, isMarkup: false, createdBy: 'admin' }),
+    ]);
 
-      if (od.discountCode) {
-        const dc = await db.discountCode.findUnique({ where: { code: od.discountCode } });
-        if (dc) await db.orderDiscount.create({ data: { orderId: order.id, discountCodeId: dc.id, appliedValue: od.discountVal } });
-      }
-      orderCounter++;
-    }
+    // 6. Sample Orders
+    const now = Date.now();
+    const daysMs = (d: number) => d * 24 * 60 * 60 * 1000;
+
+    await Promise.all([
+      // Order 1 — shipped, Sarah/Wilson, pns7 x2, WELCOME10 10% off
+      createOrder({
+        orderNumber: 'BIO-1001',
+        physicianId: wilson.id,
+        salesRepId: sarah.id,
+        status: 'shipped',
+        subtotal: 15000,
+        discountTotal: 1500,
+        shippingCost: 0,
+        total: 13500,
+        buyTotal: 11000,
+        marginTotal: 2500,
+        deliveryDate: null,
+        notes: null,
+        items: [{ productId: pns7.id, quantity: 2, buyPrice: 5500, sellPrice: 7500, margin: 2000, tierLabel: '1-12 units' }],
+        discounts: [{ discountCodeId: welcome.id, appliedValue: 1500 }],
+        approvedAt: new Date(now - daysMs(43)).toISOString(),
+        paidAt:     new Date(now - daysMs(42)).toISOString(),
+        shippedAt:  new Date(now - daysMs(40)).toISOString(),
+      }),
+
+      // Order 2 — paid, Mike/Chang, etx x1 + nerveStim x5
+      createOrder({
+        orderNumber: 'BIO-1002',
+        physicianId: chang.id,
+        salesRepId: mike.id,
+        status: 'paid',
+        subtotal: 14250,
+        discountTotal: 0,
+        shippingCost: 0,
+        total: 14250,
+        buyTotal: 9800,
+        marginTotal: 4450,
+        deliveryDate: null,
+        notes: null,
+        items: [
+          { productId: etx.id,       quantity: 1, buyPrice: 2800, sellPrice: 4000, margin: 1200, tierLabel: null },
+          { productId: nerveStim.id, quantity: 5, buyPrice: 1400, sellPrice: 2050, margin:  650, tierLabel: null },
+        ],
+        discounts: [],
+        approvedAt: new Date(now - daysMs(10)).toISOString(),
+        paidAt:     new Date(now - daysMs(9)).toISOString(),
+        shippedAt: null,
+      }),
+
+      // Order 3 — order_approved, Emily/Rivera, pns12 x15
+      createOrder({
+        orderNumber: 'BIO-1003',
+        physicianId: rivera.id,
+        salesRepId: emily.id,
+        status: 'order_approved',
+        subtotal: 105000,
+        discountTotal: 0,
+        shippingCost: 0,
+        total: 105000,
+        buyTotal: 82500,
+        marginTotal: 22500,
+        deliveryDate: null,
+        notes: null,
+        items: [{ productId: pns12.id, quantity: 15, buyPrice: 5500, sellPrice: 7000, margin: 1500, tierLabel: '13-29 units' }],
+        discounts: [],
+        approvedAt: new Date(now - daysMs(2)).toISOString(),
+        paidAt: null,
+        shippedAt: null,
+      }),
+
+      // Order 4 — order_placed, Sarah/Santos, cathSet x3 + cable x2
+      createOrder({
+        orderNumber: 'BIO-1004',
+        physicianId: santos.id,
+        salesRepId: sarah.id,
+        status: 'order_placed',
+        subtotal: 3410,
+        discountTotal: 0,
+        shippingCost: 0,
+        total: 3410,
+        buyTotal: 2290,
+        marginTotal: 1120,
+        deliveryDate: null,
+        notes: null,
+        items: [
+          { productId: cathSet.id, quantity: 3, buyPrice: 650, sellPrice: 970, margin: 320, tierLabel: null },
+          { productId: cable.id,   quantity: 2, buyPrice: 170, sellPrice: 250, margin:  80, tierLabel: null },
+        ],
+        discounts: [],
+        approvedAt: null,
+        paidAt: null,
+        shippedAt: null,
+      }),
+    ]);
 
     return NextResponse.json({
       success: true,
-      message: `Re-seeded! Created: ${reps.length + 1} reps, ${physicians.length} physicians, 7 products, 3 discount codes, ${orderData.length} orders`,
+      message: 'JotForm seeded successfully! Created: 3 sales reps, 4 physicians, 7 products, 3 discount codes, 4 orders',
+      credentials: {
+        admin: 'admin@biomedic.com / BioMedic2024!',
+        reps: [
+          `${sarah.email} / rep1234`,
+          `${mike.email} / rep1234`,
+          `${emily.email} / rep1234`,
+        ],
+      },
     });
-  } catch (error: unknown) {
-    console.error('Error seeding:', error);
+  } catch (error) {
+    console.error('Error seeding JotForm:', error);
     const message = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json({ error: 'Failed to seed database', details: message }, { status: 500 });
+    return NextResponse.json({ error: 'Failed to seed JotForm', details: message }, { status: 500 });
   }
-}, ['admin']); // Admin only
+}, ['admin']);

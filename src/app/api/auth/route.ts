@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
+import { getSalesRepByEmail } from '@/lib/jotform';
 import { createSession, verifySession } from '@/lib/auth';
 
 const ADMIN_EMAIL = 'admin@biomedic.com';
@@ -15,7 +15,7 @@ export async function POST(request: NextRequest) {
 
     let user;
 
-    // Check admin credentials
+    // Check admin credentials (hardcoded — admin does not need a DB record)
     if (email === ADMIN_EMAIL && password === ADMIN_PASSWORD) {
       user = {
         id: 'admin',
@@ -25,18 +25,15 @@ export async function POST(request: NextRequest) {
         territory: null,
       };
     } else {
-      // Check sales rep credentials
-      const rep = await db.salesRep.findUnique({
-        where: { email, active: true },
-      });
-
-      if (rep && rep.password === password) {
+      // Check sales rep credentials from JotForm
+      const rep = await getSalesRepByEmail(email);
+      if (rep && rep.active !== false && rep.password === password) {
         user = {
           id: rep.id,
           name: rep.name,
           email: rep.email,
           role: 'sales_rep' as const,
-          territory: rep.territory,
+          territory: rep.territory ?? null,
         };
       }
     }
@@ -45,39 +42,30 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Invalid email or password' }, { status: 401 });
     }
 
-    // Create JWT session
     const token = await createSession(user);
-
     const response = NextResponse.json(user);
-
-    // Set HttpOnly cookie with the JWT
     response.cookies.set('session', token, {
       httpOnly: true,
       secure: process.env.NODE_ENV === 'production',
       sameSite: 'lax',
-      maxAge: 60 * 60 * 24, // 24 hours
+      maxAge: 60 * 60 * 24,
       path: '/',
     });
 
     return response;
   } catch (error) {
-    console.error('Error in auth:', error);
+    console.error('Auth error:', error);
     return NextResponse.json({ error: 'Authentication failed' }, { status: 500 });
   }
 }
 
-// GET - Check current session
 export async function GET(request: NextRequest) {
   try {
     const token = request.cookies.get('session')?.value;
-    if (!token) {
-      return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
-    }
+    if (!token) return NextResponse.json({ error: 'Not authenticated' }, { status: 401 });
 
     const user = await verifySession(token);
-    if (!user) {
-      return NextResponse.json({ error: 'Session expired' }, { status: 401 });
-    }
+    if (!user) return NextResponse.json({ error: 'Session expired' }, { status: 401 });
 
     return NextResponse.json(user);
   } catch {
@@ -85,7 +73,6 @@ export async function GET(request: NextRequest) {
   }
 }
 
-// DELETE - Logout (clear session cookie)
 export async function DELETE() {
   const response = NextResponse.json({ success: true });
   response.cookies.set('session', '', {

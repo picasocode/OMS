@@ -1,42 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/lib/db';
 import { requireAuth } from '@/lib/auth';
+import { getSalesReps, getSalesRepByEmail, createSalesRep, getOrders } from '@/lib/jotform';
 
-// GET sales reps - Admin only
-export const GET = requireAuth(async (_request: NextRequest, user) => {
+function withoutPassword<T extends { password?: string }>(rep: T): Omit<T, 'password'> {
+  const safeRep = { ...rep };
+  delete safeRep.password;
+  return safeRep;
+}
+
+export const GET = requireAuth(async () => {
   try {
-    const reps = await db.salesRep.findMany({
-      where: { active: true },
-      include: {
-        _count: { select: { physicians: true, orders: true } },
-      },
-      orderBy: { name: 'asc' },
+    const reps = await getSalesReps();
+    const allOrders = await getOrders();
+
+    const repsWithStats = reps.map((rep) => {
+      const repOrders = allOrders.filter((o) => o.salesRepId === rep.id);
+      const totalRevenue = repOrders.reduce((s, o) => s + (o.total ?? 0), 0);
+      const totalMargin = repOrders.reduce((s, o) => s + (o.marginTotal ?? 0), 0);
+      const safeRep = withoutPassword(rep);
+      return {
+        ...safeRep,
+        totalRevenue,
+        totalMargin,
+        _count: { physicians: 0, orders: repOrders.length },
+      };
     });
 
-    // Get revenue for each rep
-    const repsWithRevenue = await Promise.all(
-      reps.map(async (rep) => {
-        const orders = await db.order.findMany({
-          where: { salesRepId: rep.id },
-          select: { total: true, marginTotal: true },
-        });
-        const totalRevenue = orders.reduce((sum: number, o: { total: number }) => sum + o.total, 0);
-        const totalMargin = orders.reduce((sum: number, o: { marginTotal: number }) => sum + o.marginTotal, 0);
-        // Strip password from response
-        const { password: _, ...safeRep } = rep;
-        return { ...safeRep, totalRevenue, totalMargin };
-      })
-    );
-
-    return NextResponse.json(repsWithRevenue);
+    return NextResponse.json(repsWithStats);
   } catch (error) {
     console.error('Error fetching sales reps:', error);
     return NextResponse.json({ error: 'Failed to fetch sales reps' }, { status: 500 });
   }
-}, ['admin']); // Admin only
+}, ['admin']);
 
-// POST create sales rep - Admin only
-export const POST = requireAuth(async (request: NextRequest, user) => {
+export const POST = requireAuth(async (request: NextRequest) => {
   try {
     const body = await request.json();
     const { name, email, phone, territory, password } = body;
@@ -45,33 +42,27 @@ export const POST = requireAuth(async (request: NextRequest, user) => {
       return NextResponse.json({ error: 'Name, email, and password are required' }, { status: 400 });
     }
 
-    // Check if email already exists
-    const existing = await db.salesRep.findUnique({ where: { email } });
+    const existing = await getSalesRepByEmail(email);
     if (existing) {
       return NextResponse.json({ error: 'Email already exists' }, { status: 409 });
     }
 
-    const rep = await db.salesRep.create({
-      data: { name, email, phone: phone || null, territory: territory || null, password },
-      include: { _count: { select: { physicians: true, orders: true } } },
+    const rep = await createSalesRep({
+      name,
+      email,
+      password,
+      phone: phone || null,
+      territory: territory || null,
+      active: true,
     });
 
-    // Audit log
-    await db.auditLog.create({
-      data: {
-        action: 'sales_rep_created',
-        entity: 'sales_rep',
-        entityId: rep.id,
-        salesRepId: null,
-        details: JSON.stringify({ name, email, createdBy: user.email }),
-      },
-    });
-
-    // Strip password from response
-    const { password: _, ...safeRep } = rep;
-    return NextResponse.json({ ...safeRep, totalRevenue: 0, totalMargin: 0 }, { status: 201 });
+    const safeRep = withoutPassword(rep);
+    return NextResponse.json(
+      { ...safeRep, totalRevenue: 0, totalMargin: 0, _count: { physicians: 0, orders: 0 } },
+      { status: 201 }
+    );
   } catch (error) {
     console.error('Error creating sales rep:', error);
     return NextResponse.json({ error: 'Failed to create sales rep' }, { status: 500 });
   }
-}, ['admin']); // Admin only
+}, ['admin']);
